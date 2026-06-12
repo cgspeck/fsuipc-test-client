@@ -1,0 +1,5 @@
+# the distribution folder
+/dist
+# C# test client and test suite
+/**/obj
+/**/bin
