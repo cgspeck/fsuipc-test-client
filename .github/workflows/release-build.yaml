@@ -32,7 +32,7 @@ jobs:
       run: dotnet build fsuipc-test-client -c Release --no-restore
 
     - name: Archive
-      uses: vimtor/action-zip@v1
+      uses: vimtor/action-zip@v1.3
       with:
         files: fsuipc-test-client\bin\Release\net10.0-windows\ README.md LICENSE.md slc-offsets.csv
         dest: fsuipc-test-client.zip
