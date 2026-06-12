@@ -13,9 +13,14 @@ public static class OffsetParser
         for (int i = 0; i < lines.Length; i++)
         {
             var line = lines[i].Trim();
+            string? comment = null;
             var commentIdx = line.IndexOf('#');
             if (commentIdx >= 0)
+            {
+                var rawComment = line[(commentIdx + 1)..].Trim();
+                comment = rawComment.Length > 0 ? rawComment : null;
                 line = line[..commentIdx].TrimEnd();
+            }
             if (line.Length == 0)
                 continue;
 
@@ -52,7 +57,7 @@ public static class OffsetParser
                 }
             }
 
-            offsets.Add(new OffsetDefinition(address, type, size));
+            offsets.Add(new OffsetDefinition(address, type, size, comment));
         }
 
         return (offsets, errors);
@@ -74,10 +79,12 @@ public static class OffsetParser
         {
             var addr = def.Address > 0xFFFF ? $"0x{def.Address:X5}" : $"0x{def.Address:X4}";
             var typeStr = TypeLabel(def.Type);
-            if (TypeInfo.IsFixedSize(def.Type))
-                writer.WriteLine($"{addr},{typeStr}");
-            else
-                writer.WriteLine($"{addr},{typeStr},{def.Size}");
+            var line = TypeInfo.IsFixedSize(def.Type)
+                ? $"{addr},{typeStr}"
+                : $"{addr},{typeStr},{def.Size}";
+            if (!string.IsNullOrEmpty(def.Comment))
+                line += $"  # {def.Comment}";
+            writer.WriteLine(line);
         }
     }
 

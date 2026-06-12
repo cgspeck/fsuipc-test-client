@@ -74,6 +74,40 @@ public static class BatchMode
         );
     }
 
+    public static string FormatCsvSnapshot(IReadOnlyList<RegisteredOffset> handles)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Offset,Value");
+        foreach (var h in handles)
+        {
+            var addr = h.Def.Address > 0xFFFF ? $"0x{h.Def.Address:X5}" : $"0x{h.Def.Address:X4}";
+            sb.Append(addr);
+            sb.Append(',');
+            var val = h.Value;
+            if (val == null)
+            {
+                // empty cell
+            }
+            else if (val is byte[] buf)
+            {
+                sb.Append(Convert.ToHexString(buf));
+            }
+            else if (val is string s)
+            {
+                if (s.Contains(',') || s.Contains('"'))
+                    sb.Append($"\"{s.Replace("\"", "\"\"")}\"");
+                else
+                    sb.Append(s);
+            }
+            else
+            {
+                sb.Append(val.ToString());
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
     static string TypeString(OffsetType t) => t switch
     {
         OffsetType.U8 => "u8",

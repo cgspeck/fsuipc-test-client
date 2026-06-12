@@ -5,7 +5,7 @@ public enum OffsetType
     U8, I8, U16, I16, U32, I32, F32, U64, I64, F64, String, Bytes
 }
 
-public record OffsetDefinition(int Address, OffsetType Type, int Size);
+public record OffsetDefinition(int Address, OffsetType Type, int Size, string? Comment = null);
 
 public record OffsetValue(OffsetDefinition Def, string? DisplayValue, bool HasError, string? Error);
 

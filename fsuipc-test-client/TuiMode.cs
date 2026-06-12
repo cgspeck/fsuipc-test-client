@@ -10,7 +10,7 @@ public static class TuiMode
     static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(100);
     static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(500);
 
-    enum KeyAction { None, Quit, Reload, Save, Add, Edit, Delete, WriteFile }
+    enum KeyAction { None, Quit, Reload, JsonSnapshot, CsvSnapshot, Add, Edit, Delete, WriteFile }
 
     public static async Task<int> Run(string inputPath)
     {
@@ -141,7 +141,7 @@ public static class TuiMode
                         break;
                     }
 
-                case KeyAction.Save:
+                case KeyAction.JsonSnapshot:
                     {
                         var snapshot = BatchMode.FormatSnapshot(client.Handles);
                         var json = System.Text.Json.JsonSerializer.Serialize(snapshot, new System.Text.Json.JsonSerializerOptions
@@ -151,6 +151,15 @@ public static class TuiMode
                         });
                         var savePath = $"fsuipc-snapshot-{DateTime.Now:yyyyMMdd-HHmmss}-{hostname}.json";
                         File.WriteAllText(savePath, json);
+                        state.LastError = $"Saved to {savePath}";
+                        break;
+                    }
+
+                case KeyAction.CsvSnapshot:
+                    {
+                        var csv = BatchMode.FormatCsvSnapshot(client.Handles);
+                        var savePath = $"fsuipc-snapshot-{DateTime.Now:yyyyMMdd-HHmmss}-{hostname}.csv";
+                        File.WriteAllText(savePath, csv);
                         state.LastError = $"Saved to {savePath}";
                         break;
                     }
@@ -256,8 +265,10 @@ public static class TuiMode
                 return KeyAction.Quit;
             case ConsoleKey.R:
                 return KeyAction.Reload;
-            case ConsoleKey.S:
-                return KeyAction.Save;
+            case ConsoleKey.J:
+                return KeyAction.JsonSnapshot;
+            case ConsoleKey.C:
+                return KeyAction.CsvSnapshot;
             case ConsoleKey.A:
                 return KeyAction.Add;
             case ConsoleKey.E:
@@ -319,7 +330,11 @@ public static class TuiMode
                 return null;
         }
 
-        return new OffsetDefinition(address, type, size);
+        var comment = AnsiConsole.Prompt(
+            new TextPrompt<string>("Comment (optional):")
+                .AllowEmpty());
+
+        return new OffsetDefinition(address, type, size, comment == "" ? null : comment);
     }
 
     static OffsetDefinition? PromptEdit(OffsetDefinition existing)
@@ -377,7 +392,12 @@ public static class TuiMode
                 return null;
         }
 
-        return new OffsetDefinition(address, type, size);
+        var comment = AnsiConsole.Prompt(
+            new TextPrompt<string>("Comment (optional):")
+                .DefaultValue(existing.Comment ?? "")
+                .AllowEmpty());
+
+        return new OffsetDefinition(address, type, size, comment == "" ? null : comment);
     }
 
     static IRenderable BuildLayout(FsuipcClient client, TuiState state)
@@ -395,7 +415,8 @@ public static class TuiMode
             .AddColumn(new TableColumn("Address").Width(8))
             .AddColumn(new TableColumn("Type").Width(8))
             .AddColumn(new TableColumn("Size").Width(4))
-            .AddColumn(new TableColumn("Value").Width(30));
+            .AddColumn(new TableColumn("Value").Width(30))
+            .AddColumn(new TableColumn("Comment"));
 
         for (int i = start; i < end && i < totalRows; i++)
             AddRow(table, client.Handles[i], i, state.SelectedIndex);
@@ -436,6 +457,7 @@ public static class TuiMode
         var addr = $"0x{FormatAddress(h.Def.Address)}";
         var typeStr = TypeLabel(h.Def.Type);
         var sizeStr = TypeInfo.IsFixedSize(h.Def.Type) ? "" : h.Def.Size.ToString();
+        var commentStr = h.Def.Comment?.EscapeMarkup() ?? "";
 
         var val = h.Value;
         string valStr = val switch
@@ -453,7 +475,8 @@ public static class TuiMode
                 new Markup($"[reverse]{addr}[/]"),
                 new Markup($"[reverse]{typeStr}[/]"),
                 new Markup($"[reverse]{sizeStr}[/]"),
-                new Markup($"[reverse]{valStr.EscapeMarkup()}[/]")
+                new Markup($"[reverse]{valStr.EscapeMarkup()}[/]"),
+                new Markup($"[reverse]{commentStr}[/]")
             );
         }
         else
@@ -463,7 +486,8 @@ public static class TuiMode
                 new Text(addr),
                 new Text(typeStr),
                 new Text(sizeStr),
-                new Markup(valStr.EscapeMarkup())
+                new Markup(valStr.EscapeMarkup()),
+                new Text(commentStr)
             );
         }
     }
@@ -499,7 +523,8 @@ public static class TuiMode
             "[yellow]d[/]    Delete selected offset\n" +
             "[yellow]w[/]    Write offsets to file\n" +
             "[yellow]r[/]    Reload from file\n" +
-            "[yellow]s[/]    Save snapshot to JSON\n" +
+            "[yellow]j[/]    Save JSON snapshot\n" +
+            "[yellow]c[/]    Save CSV snapshot\n" +
             "[yellow]q[/]    Quit\n" +
             "[yellow]h[/]    Toggle help\n" +
             "[yellow]Esc[/]  Close help\n" +
