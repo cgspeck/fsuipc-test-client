@@ -176,9 +176,8 @@ public static class TuiMode
     {
         KeyAction exitAction = KeyAction.None;
 
-        await AnsiConsole.Live(CreateTable(client, state))
+        await AnsiConsole.Live(BuildLayout(client, state))
             .AutoClear(false)
-            .Overflow(VerticalOverflow.Ellipsis)
             .StartAsync(async ctx =>
             {
                 var lastRefresh = DateTime.UtcNow;
@@ -200,7 +199,7 @@ public static class TuiMode
                         lastRefresh = now;
                     }
 
-                    ctx.UpdateTarget(CreateTable(client, state));
+                    ctx.UpdateTarget(BuildLayout(client, state));
 
                     if (Console.KeyAvailable)
                     {
@@ -212,6 +211,9 @@ public static class TuiMode
                             exitAction = action;
                             break;
                         }
+
+                        if (key.Key is ConsoleKey.UpArrow or ConsoleKey.DownArrow)
+                            ctx.UpdateTarget(BuildLayout(client, state));
                     }
 
                     await Task.Delay(TickInterval);
@@ -366,68 +368,113 @@ public static class TuiMode
         return new OffsetDefinition(address, type, size);
     }
 
-    static IRenderable CreateTable(FsuipcClient client, TuiState state)
+    static IRenderable BuildLayout(FsuipcClient client, TuiState state)
     {
         if (state.ShowHelp)
             return HelpPanel();
 
-        var modified = state.IsDirty ? " [yellow][[modified]][/]" : "";
-        var conn = client.IsConnected ? "CONNECTED" : "DISCONNECTED";
-        var statusLine = $"{Path.GetFileName(state.FilePath).EscapeMarkup()}{modified} | {client.Handles.Count} offsets | {conn} | h for help";
-
-        if (state.LastError != null)
-            statusLine += $"\n{state.LastError.EscapeMarkup()}";
+        int totalRows = client.Handles.Count;
+        int viewportHeight = GetAvailableHeight(state.LastError != null);
+        var (start, end, hasMoreUp, hasMoreDown) = ComputeWindow(totalRows, state.SelectedIndex, viewportHeight);
 
         var table = new Table()
             .Border(TableBorder.Simple)
-            .Caption(statusLine)
             .AddColumn(new TableColumn(" ").Width(2))
             .AddColumn(new TableColumn("Address").Width(8))
             .AddColumn(new TableColumn("Type").Width(8))
             .AddColumn(new TableColumn("Size").Width(4))
             .AddColumn(new TableColumn("Value").Width(30));
 
-        for (int i = 0; i < client.Handles.Count; i++)
+        for (int i = start; i < end && i < totalRows; i++)
+            AddRow(table, client.Handles[i], i, state.SelectedIndex);
+
+        var statusLine = BuildStatusLine(client, state);
+
+        var elements = new List<IRenderable>();
+        if (hasMoreUp) elements.Add(BuildScrollIndicator(true, start, totalRows));
+        elements.Add(table);
+        if (hasMoreDown) elements.Add(BuildScrollIndicator(false, end, totalRows));
+        elements.Add(statusLine);
+        if (state.LastError != null)
+            elements.Add(new Markup($"[red]{state.LastError.EscapeMarkup()}[/]"));
+
+        return new Rows(elements);
+    }
+
+    static int GetAvailableHeight(bool hasError)
+    {
+        int overhead = 5;
+        if (hasError) overhead++;
+        int indicatorReserve = 2;
+        return Math.Max(1, Console.WindowHeight - overhead - indicatorReserve);
+    }
+
+    static (int start, int end, bool hasMoreUp, bool hasMoreDown) ComputeWindow(int total, int selected, int viewportHeight)
+    {
+        int half = Math.Max(1, viewportHeight / 2);
+        int start = Math.Max(0, selected - half);
+        int end = Math.Min(total, start + viewportHeight);
+        start = Math.Max(0, end - viewportHeight);
+        return (start, end, start > 0, end < total);
+    }
+
+    static void AddRow(Table table, RegisteredOffset h, int index, int selectedIndex)
+    {
+        var isSelected = index == selectedIndex;
+        var prefix = isSelected ? "▸" : " ";
+        var addr = $"0x{FormatAddress(h.Def.Address)}";
+        var typeStr = TypeLabel(h.Def.Type);
+        var sizeStr = TypeInfo.IsFixedSize(h.Def.Type) ? "" : h.Def.Size.ToString();
+
+        var val = h.Value;
+        string valStr = val switch
         {
-            var h = client.Handles[i];
-            var isSelected = i == state.SelectedIndex;
-            var prefix = isSelected ? "▸" : " ";
-            var addr = $"0x{FormatAddress(h.Def.Address)}";
-            var typeStr = TypeLabel(h.Def.Type);
-            var sizeStr = TypeInfo.IsFixedSize(h.Def.Type) ? "" : h.Def.Size.ToString();
+            null => "[dim]—[/]",
+            byte[] buf => Convert.ToHexString(buf),
+            string s when s.Length > 60 => s[..57] + "...",
+            _ => val.ToString() ?? "[dim]—[/]"
+        };
 
-            var val = h.Value;
-            string valStr = val switch
-            {
-                null => "[dim]—[/]",
-                byte[] buf => Convert.ToHexString(buf),
-                string s when s.Length > 60 => s[..57] + "...",
-                _ => val.ToString() ?? "[dim]—[/]"
-            };
-
-            if (isSelected)
-            {
-                table.AddRow(
-                    new Markup($"[reverse]{prefix}[/]"),
-                    new Markup($"[reverse]{addr}[/]"),
-                    new Markup($"[reverse]{typeStr}[/]"),
-                    new Markup($"[reverse]{sizeStr}[/]"),
-                    new Markup($"[reverse]{valStr.EscapeMarkup()}[/]")
-                );
-            }
-            else
-            {
-                table.AddRow(
-                    new Text(prefix),
-                    new Text(addr),
-                    new Text(typeStr),
-                    new Text(sizeStr),
-                    new Markup(valStr.EscapeMarkup())
-                );
-            }
+        if (isSelected)
+        {
+            table.AddRow(
+                new Markup($"[reverse]{prefix}[/]"),
+                new Markup($"[reverse]{addr}[/]"),
+                new Markup($"[reverse]{typeStr}[/]"),
+                new Markup($"[reverse]{sizeStr}[/]"),
+                new Markup($"[reverse]{valStr.EscapeMarkup()}[/]")
+            );
         }
+        else
+        {
+            table.AddRow(
+                new Text(prefix),
+                new Text(addr),
+                new Text(typeStr),
+                new Text(sizeStr),
+                new Markup(valStr.EscapeMarkup())
+            );
+        }
+    }
 
-        return table;
+    static IRenderable BuildScrollIndicator(bool isUp, int boundary, int total)
+    {
+        string text;
+        if (isUp)
+            text = boundary == 1 ? "▲  (row 1)" : $"▲  (rows 1-{boundary})";
+        else
+        {
+            int first = boundary + 1;
+            text = first == total ? $"▼  (row {total})" : $"▼  (rows {first}-{total})";
+        }
+        return new Markup($"[dim]{text}[/]");
+    }
+
+    static IRenderable BuildStatusLine(FsuipcClient client, TuiState state)
+    {
+        var modified = state.IsDirty ? " [yellow][[modified]][/]" : "";
+        var conn = client.IsConnected ? "CONNECTED" : "DISCONNECTED";
+        return new Markup($"{Path.GetFileName(state.FilePath).EscapeMarkup()}{modified} | {client.Handles.Count} offsets | {conn} | h for help");
     }
 
     static Panel HelpPanel()
