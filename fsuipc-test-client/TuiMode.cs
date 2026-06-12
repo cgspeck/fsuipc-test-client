@@ -233,6 +233,18 @@ public static class TuiMode
             case ConsoleKey.DownArrow:
                 if (state.SelectedIndex < client.Handles.Count - 1) state.SelectedIndex++;
                 return KeyAction.None;
+            case ConsoleKey.PageUp:
+                {
+                    int page = GetAvailableHeight(state.LastError != null);
+                    state.SelectedIndex = Math.Max(0, state.SelectedIndex - page);
+                    return KeyAction.None;
+                }
+            case ConsoleKey.PageDown:
+                {
+                    int page = GetAvailableHeight(state.LastError != null);
+                    state.SelectedIndex = Math.Min(client.Handles.Count - 1, state.SelectedIndex + page);
+                    return KeyAction.None;
+                }
             case ConsoleKey.H:
             case ConsoleKey.F1:
                 state.ShowHelp = !state.ShowHelp;
@@ -391,9 +403,9 @@ public static class TuiMode
         var statusLine = BuildStatusLine(client, state);
 
         var elements = new List<IRenderable>();
-        if (hasMoreUp) elements.Add(BuildScrollIndicator(true, start, totalRows));
+        elements.Add(hasMoreUp ? BuildScrollIndicator(true, start, totalRows) : new Text(" "));
         elements.Add(table);
-        if (hasMoreDown) elements.Add(BuildScrollIndicator(false, end, totalRows));
+        elements.Add(hasMoreDown ? BuildScrollIndicator(false, end, totalRows) : new Text(" "));
         elements.Add(statusLine);
         if (state.LastError != null)
             elements.Add(new Markup($"[red]{state.LastError.EscapeMarkup()}[/]"));
@@ -403,10 +415,9 @@ public static class TuiMode
 
     static int GetAvailableHeight(bool hasError)
     {
-        int overhead = 5;
+        int overhead = 7;
         if (hasError) overhead++;
-        int indicatorReserve = 2;
-        return Math.Max(1, Console.WindowHeight - overhead - indicatorReserve);
+        return Math.Max(1, Console.WindowHeight - overhead);
     }
 
     static (int start, int end, bool hasMoreUp, bool hasMoreDown) ComputeWindow(int total, int selected, int viewportHeight)
