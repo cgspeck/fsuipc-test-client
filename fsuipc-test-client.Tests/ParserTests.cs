@@ -208,6 +208,7 @@ public class OffsetParserTests
         Assert.Single(offsets);
         Assert.Equal(0x02BC, offsets[0].Address);
         Assert.Equal(OffsetType.I32, offsets[0].Type);
+        Assert.Equal("Indicated airspeed", offsets[0].Comment);
     }
 
     [Fact]
@@ -223,6 +224,21 @@ public class OffsetParserTests
 
         Assert.Empty(errors);
         Assert.Equal(3, offsets.Count);
+        Assert.Equal("airspeed", offsets[0].Comment);
+        Assert.Equal("lights", offsets[1].Comment);
+        Assert.Null(offsets[2].Comment);
+    }
+
+    [Fact]
+    public void ParseOffsetWithoutComment()
+    {
+        var path = WriteTemp("0x02BC,i32");
+
+        var (offsets, errors) = OffsetParser.Parse(path);
+
+        Assert.Empty(errors);
+        Assert.Single(offsets);
+        Assert.Null(offsets[0].Comment);
     }
 
     [Fact]
@@ -266,6 +282,44 @@ public class OffsetParserTests
         Assert.Equal(2, offsets.Count);
         Assert.Equal(0x02BC, offsets[0].Address);
         Assert.Equal(OffsetType.I32, offsets[0].Type);
+    }
+
+    [Fact]
+    public void CommentOnlyHash()
+    {
+        var path = WriteTemp("0x02BC,i32  #");
+
+        var (offsets, errors) = OffsetParser.Parse(path);
+
+        Assert.Empty(errors);
+        Assert.Single(offsets);
+        Assert.Null(offsets[0].Comment);
+    }
+
+    [Fact]
+    public void WriteFilePreservesComment()
+    {
+        var path = WriteTemp("0x02BC,i32  # airspeed");
+        var (offsets, _) = OffsetParser.Parse(path);
+
+        var outPath = Path.GetTempFileName();
+        OffsetParser.WriteFile(outPath, offsets);
+        var text = File.ReadAllText(outPath).Trim();
+
+        Assert.Contains("  # airspeed", text);
+    }
+
+    [Fact]
+    public void WriteFileOmitsNullComment()
+    {
+        var path = WriteTemp("0x02BC,i32");
+        var (offsets, _) = OffsetParser.Parse(path);
+
+        var outPath = Path.GetTempFileName();
+        OffsetParser.WriteFile(outPath, offsets);
+        var text = File.ReadAllText(outPath).Trim();
+
+        Assert.DoesNotContain("#", text);
     }
 
     static string WriteTemp(string content)
